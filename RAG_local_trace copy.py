@@ -1,6 +1,15 @@
 import os
 import fitz  # PyMuPDF
+import json
 from typing import List
+
+# RAGAS Evaluation Imports
+from ragas.metrics import (
+    context_precision,  # Measures if retrieved text is relevant to the answer.
+    context_recall  # Measures if all necessary information was retrieved.
+)
+from ragas import evaluate
+from datasets import Dataset
 
 # FAISS & LangChain Imports
 from langchain_openai import OpenAIEmbeddings
@@ -64,6 +73,45 @@ def retrieve_relevant_docs(query, k=3):
     return [doc.page_content for doc in results]
 
 # =============================================================================
+# RAGAS Evaluation (Retrieval Testing Only)
+# =============================================================================
+def evaluate_ragas(query: str, retrieved_docs: List[str], correct_answer: str):
+    """Evaluates the RAG retrieval system using RAGAS metrics."""
+    
+    # Ensure retrieved_docs is formatted as a list of strings
+    if not isinstance(retrieved_docs, list):
+        retrieved_docs = [retrieved_docs]  
+
+    # Prepare data for RAGAS evaluation
+    evaluation_data = {
+        "question": [query],
+        "contexts": [retrieved_docs],  # Correct format: list of strings
+        "answer": [correct_answer],
+        "reference": [correct_answer]  # REQUIRED for context_precision
+    }
+    dataset = Dataset.from_dict(evaluation_data)
+
+    # Run RAGAS evaluation
+    scores = evaluate(dataset, metrics=[
+        context_precision,
+        context_recall
+    ])
+
+    # Convert EvaluationResult to a dictionary using __dict__
+    scores_dict = scores.__dict__
+
+    # Remove the non-serializable evaluation_dataset before JSON serialization.
+    if "evaluation_dataset" in scores_dict:
+        scores_dict.pop("evaluation_dataset")
+
+    print("\n📊 **RAG Retrieval Evaluation Scores:**")
+    print(json.dumps(scores_dict, indent=2, default=str))
+
+
+
+
+
+# =============================================================================
 # Main Script Execution
 # =============================================================================
 if __name__ == "__main__":
@@ -81,3 +129,13 @@ if __name__ == "__main__":
         print("\n🔍 RAG Retrieved Contexts:\n")
         for idx, doc in enumerate(retrieved_docs, 1):
             print(f"[{idx}] {doc}\n")
+
+        if not retrieved_docs:
+            print("⚠ No relevant documents found in the database.")
+            continue
+
+        # Ask the user for the correct answer (for testing)
+        correct_answer = input("\n✅ Enter the expected correct answer for evaluation: ")
+
+        # Run evaluation on retrieval quality
+        evaluate_ragas(user_query, retrieved_docs, correct_answer)
